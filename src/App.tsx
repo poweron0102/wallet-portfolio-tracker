@@ -1,0 +1,596 @@
+import React, { useState, useMemo } from 'react';
+// Opção A (Mais fácil - Adicione 'type' antes do nome)
+import { 
+  Wallet, 
+  Menu, 
+  X, 
+  ChevronDown, 
+  TrendingUp, 
+  TrendingDown, 
+  LayoutDashboard, 
+  History, 
+  CreditCard,
+  Ghost,
+  ShieldCheck,
+  Globe,
+  type LucideIcon // <--- ADICIONE 'type' AQUI
+} from 'lucide-react';
+import { 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer 
+} from 'recharts';
+
+// --- TYPES & INTERFACES ---
+
+type FiatCurrency = 'USD' | 'BRL' | 'EUR';
+
+interface FiatInfo {
+  symbol: string;
+  rate: number;
+}
+
+interface Asset {
+  id: string;
+  name: string;
+  ticker: string;
+  network: string;
+  balance: number;
+  priceUsd: number;
+  change24h: number;
+  change7d: number;
+}
+
+interface ChartDataPoint {
+  name: string;
+  value: number;
+}
+
+interface SubItem {
+  key: string;
+  label: string;
+}
+
+// --- MOCK DATA & CONSTANTS ---
+
+const FIAT_RATES: Record<FiatCurrency, FiatInfo> = {
+  USD: { symbol: '$', rate: 1 },
+  BRL: { symbol: 'R$', rate: 5.10 },
+  EUR: { symbol: '€', rate: 0.92 },
+};
+
+const TIME_RANGES = ['1D', '1S', '1M', '3M', '6M', '1A'];
+
+const MOCK_ASSETS: Asset[] = [
+  { id: '1', name: 'Ethereum', ticker: 'ETH', network: 'ETH', balance: 1.5, priceUsd: 3200, change24h: 2.5, change7d: 5.1 },
+  { id: '2', name: 'USDC', ticker: 'USDC', network: 'ETH', balance: 500, priceUsd: 1, change24h: 0.01, change7d: 0.02 },
+  { id: '3', name: 'BNB', ticker: 'BNB', network: 'BSC', balance: 10, priceUsd: 580, change24h: -1.2, change7d: 3.5 },
+  { id: '4', name: 'Cake', ticker: 'CAKE', network: 'BSC', balance: 150, priceUsd: 2.8, change24h: -4.5, change7d: -10.2 },
+  { id: '5', name: 'Solana', ticker: 'SOL', network: 'SOLANA', balance: 45, priceUsd: 145, change24h: 8.4, change7d: 15.2 },
+  { id: '6', name: 'Jupiter', ticker: 'JUP', network: 'SOLANA', balance: 2000, priceUsd: 1.1, change24h: 5.2, change7d: 12.0 },
+  { id: '7', name: 'Cardano', ticker: 'ADA', network: 'CARDANO', balance: 5000, priceUsd: 0.45, change24h: -0.5, change7d: -2.1 },
+];
+
+const generateChartData = (network: string, range: string): ChartDataPoint[] => {
+  const data: ChartDataPoint[] = [];
+  const points = range === '1D' ? 24 : range === '1A' ? 12 : 30;
+  let baseValue = 10000;
+  
+  if (network === 'ETH') baseValue = 5000;
+  if (network === 'BSC') baseValue = 3000;
+  if (network === 'SOLANA') baseValue = 4000;
+  if (network === 'CARDANO') baseValue = 1500;
+
+  for (let i = 0; i < points; i++) {
+    const randomChange = (Math.random() - 0.45) * 500; 
+    baseValue += randomChange;
+    if (baseValue < 0) baseValue = 100;
+    
+    data.push({
+      name: `P${i}`,
+      value: Math.floor(baseValue),
+    });
+  }
+  return data;
+};
+
+// --- COMPONENTS ---
+
+interface ModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+  title: string;
+}
+
+const Modal: React.FC<ModalProps> = ({ isOpen, onClose, children, title }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="flex justify-between items-center p-4 border-b border-slate-700">
+          <h3 className="text-xl font-bold text-white">{title}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <X size={24} />
+          </button>
+        </div>
+        <div className="p-6">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface WalletOptionProps {
+  name: string;
+  icon: React.ReactNode;
+  color: string;
+  onClick: () => void;
+}
+
+const WalletOption: React.FC<WalletOptionProps> = ({ name, icon, color, onClick }) => (
+  <button 
+    onClick={onClick}
+    className="w-full flex items-center justify-between p-4 mb-3 bg-slate-700/50 hover:bg-slate-700 border border-slate-600 rounded-xl transition-all group"
+  >
+    <div className="flex items-center gap-4">
+      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${color} bg-opacity-20`}>
+        {icon}
+      </div>
+      <span className="font-semibold text-lg text-slate-200 group-hover:text-white">{name}</span>
+    </div>
+    <div className="w-2 h-2 rounded-full bg-slate-500 group-hover:bg-green-400 transition-colors" />
+  </button>
+);
+
+// Note: StatCard is defined but not used in the original code, keeping it for completeness
+interface StatCardProps {
+  title: string;
+  value: string | number;
+  change: number;
+  isPositive: boolean;
+  fiatSymbol: string;
+}
+
+const StatCard: React.FC<StatCardProps> = ({ title, value, change, isPositive, fiatSymbol }) => (
+  <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 hover:border-slate-600 transition-colors">
+    <p className="text-slate-400 text-sm font-medium mb-1">{title}</p>
+    <h3 className="text-2xl font-bold text-white mb-2">{fiatSymbol} {value}</h3>
+    <div className={`flex items-center gap-1 text-sm ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+      {isPositive ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
+      <span className="font-semibold">{Math.abs(change)}%</span>
+      <span className="text-slate-500 ml-1">vs. ontem</span>
+    </div>
+  </div>
+);
+
+interface AssetRowProps {
+  asset: Asset;
+  fiatRate: number;
+  fiatSymbol: string;
+}
+
+const AssetRow: React.FC<AssetRowProps> = ({ asset, fiatRate, fiatSymbol }) => {
+  const value = (asset.balance * asset.priceUsd * fiatRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const price = (asset.priceUsd * fiatRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  
+  return (
+    <tr className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors group">
+      <td className="py-4 pl-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
+            {asset.ticker[0]}
+          </div>
+          <div>
+            <div className="font-bold text-slate-200">{asset.name}</div>
+            <div className="text-xs text-slate-500">{asset.ticker} • {asset.network}</div>
+          </div>
+        </div>
+      </td>
+      <td className="py-4 text-right">
+        <div className="text-slate-200 font-medium">{asset.balance.toLocaleString()}</div>
+      </td>
+      <td className="py-4 text-right">
+        <div className="text-slate-200 font-medium">{fiatSymbol} {price}</div>
+      </td>
+      <td className="py-4 text-right pr-4">
+        <div className="text-slate-200 font-bold">{fiatSymbol} {value}</div>
+        <div className="flex items-center justify-end gap-2 text-xs mt-1">
+          <span className={asset.change24h >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+            24h: {asset.change24h}%
+          </span>
+          <span className="text-slate-600">|</span>
+          <span className={asset.change7d >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+            7d: {asset.change7d}%
+          </span>
+        </div>
+      </td>
+    </tr>
+  );
+};
+
+interface SidebarItemProps {
+  icon: LucideIcon;
+  label: string;
+  isActive: boolean;
+  onClick: () => void;
+  hasSubmenu?: boolean;
+  subItems?: SubItem[];
+  currentSub?: string;
+  onSubClick?: (key: string) => void;
+}
+
+const SidebarItem: React.FC<SidebarItemProps> = ({ 
+  icon: Icon, 
+  label, 
+  isActive, 
+  onClick, 
+  hasSubmenu = false, 
+  subItems = [], 
+  currentSub, 
+  onSubClick 
+}) => (
+  <div className="mb-2">
+    <button 
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${isActive && !hasSubmenu ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+    >
+      <Icon size={20} />
+      <span className="font-medium">{label}</span>
+    </button>
+    
+    {/* Submenu simulando as redes para Saldo e Histórico */}
+    {hasSubmenu && isActive && (
+      <div className="ml-10 mt-1 flex flex-col gap-1 border-l border-slate-700 pl-3 animate-in slide-in-from-left-2 duration-200">
+        {subItems.map(item => (
+          <button
+            key={item.key}
+            onClick={() => onSubClick && onSubClick(item.key)}
+            className={`text-left px-3 py-2 rounded-lg text-sm transition-colors ${currentSub === item.key ? 'text-indigo-400 bg-indigo-500/10 font-semibold' : 'text-slate-500 hover:text-slate-300'}`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    )}
+  </div>
+);
+
+// --- MAIN APP COMPONENT ---
+
+export default function App() {
+  const [selectedFiat, setSelectedFiat] = useState<FiatCurrency>('BRL');
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [connectedWallet, setConnectedWallet] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'balance' | 'history'>('balance');
+  const [selectedNetwork, setSelectedNetwork] = useState('ALL'); 
+  const [chartRange, setChartRange] = useState('1M');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const handleConnect = (walletName: string) => {
+    setConnectedWallet(walletName);
+    setIsWalletModalOpen(false);
+  };
+
+  const handleDisconnect = () => {
+    setConnectedWallet(null);
+  };
+
+  const filteredAssets = useMemo(() => {
+    if (selectedNetwork === 'ALL') return MOCK_ASSETS;
+    return MOCK_ASSETS.filter(a => a.network === selectedNetwork);
+  }, [selectedNetwork]);
+
+  const totalValue = filteredAssets.reduce((acc, curr) => {
+    return acc + (curr.balance * curr.priceUsd * FIAT_RATES[selectedFiat].rate);
+  }, 0);
+
+  // Dados do gráfico reativos
+  const chartData = useMemo(() => generateChartData(selectedNetwork, chartRange), [selectedNetwork, chartRange]);
+
+  const networks: SubItem[] = [
+    { key: 'ALL', label: 'Total (Todas)' },
+    { key: 'ETH', label: 'Ethereum' },
+    { key: 'BSC', label: 'BSC' },
+    { key: 'SOLANA', label: 'Solana' },
+    { key: 'CARDANO', label: 'Cardano' },
+  ];
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-indigo-500 selection:text-white">
+      
+      {/* --- HEADER --- */}
+      <header className="fixed top-0 left-0 right-0 h-20 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 flex items-center justify-between px-6 z-40">
+        <div className="flex items-center gap-3">
+          <div className="md:hidden">
+            <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-slate-400">
+              <Menu />
+            </button>
+          </div>
+          <div className="w-10 h-10 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
+            <Wallet className="text-white" size={24} />
+          </div>
+          <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 hidden sm:block">
+            Wallet Portfolio Tracker
+          </h1>
+        </div>
+
+        <div className="flex items-center gap-4">
+          {/* Fiat Selector */}
+          <div className="relative group">
+            <button className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-sm font-medium py-2 px-4 rounded-full border border-slate-700 transition-all">
+              <span>{selectedFiat}</span>
+              <ChevronDown size={14} />
+            </button>
+            <div className="absolute right-0 top-full mt-2 w-24 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden hidden group-hover:block animate-in fade-in zoom-in duration-150">
+              {(Object.keys(FIAT_RATES) as FiatCurrency[]).map(fiat => (
+                <button 
+                  key={fiat}
+                  onClick={() => setSelectedFiat(fiat)}
+                  className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-700 ${selectedFiat === fiat ? 'text-indigo-400' : 'text-slate-300'}`}
+                >
+                  {fiat}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Connect Button */}
+          {connectedWallet ? (
+            <button 
+              onClick={handleDisconnect}
+              className="flex items-center gap-2 bg-indigo-500/10 text-indigo-400 border border-indigo-500/50 py-2 px-4 rounded-full text-sm font-semibold hover:bg-indigo-500/20 transition-all"
+            >
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+              {connectedWallet}
+            </button>
+          ) : (
+            <button 
+              onClick={() => setIsWalletModalOpen(true)}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white py-2 px-6 rounded-full text-sm font-bold shadow-lg shadow-indigo-600/20 transition-all transform hover:scale-105"
+            >
+              Conectar Carteira
+            </button>
+          )}
+        </div>
+      </header>
+
+      <div className="flex pt-20 h-screen overflow-hidden">
+        
+        {/* --- SIDEBAR --- */}
+        <aside className={`fixed md:relative z-30 w-64 h-full bg-slate-900 border-r border-slate-800 flex flex-col p-4 transition-transform duration-300 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <div className="mb-6 px-4">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Menu Principal</p>
+            </div>
+            
+            <SidebarItem 
+              icon={LayoutDashboard} 
+              label="Saldo Atual" 
+              isActive={activeTab === 'balance'} 
+              onClick={() => setActiveTab('balance')}
+              hasSubmenu={true}
+              subItems={networks}
+              currentSub={selectedNetwork}
+              onSubClick={setSelectedNetwork}
+            />
+            
+            <SidebarItem 
+              icon={History} 
+              label="Histórico" 
+              isActive={activeTab === 'history'} 
+              onClick={() => setActiveTab('history')}
+              hasSubmenu={true}
+              subItems={networks}
+              currentSub={selectedNetwork}
+              onSubClick={setSelectedNetwork}
+            />
+          </div>
+
+          <div className="p-4 border-t border-slate-800">
+            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+              <p className="text-xs text-slate-400 mb-1">Status da Rede</p>
+              <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                Operacional
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        {/* --- MAIN CONTENT --- */}
+        <main className="flex-1 overflow-y-auto bg-slate-950 p-4 md:p-8 custom-scrollbar">
+          
+          <div className="max-w-7xl mx-auto">
+            {/* Header Content */}
+            <div className="mb-8">
+              <h2 className="text-3xl font-bold text-white mb-2">
+                {activeTab === 'balance' ? 'Visão Geral do Portfólio' : 'Análise Histórica'}
+              </h2>
+              <p className="text-slate-400">
+                Visualizando dados da rede: <span className="text-indigo-400 font-semibold">{selectedNetwork === 'ALL' ? 'Todas as Redes' : selectedNetwork}</span>
+              </p>
+            </div>
+
+            {/* Total Balance Card (Shown in both views) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <div className="md:col-span-2 bg-gradient-to-r from-indigo-900 to-slate-900 rounded-2xl p-6 border border-indigo-500/30 relative overflow-hidden group">
+                <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+                  <Wallet size={120} />
+                </div>
+                <p className="text-indigo-300 font-medium mb-1 relative z-10">Saldo Estimado Total</p>
+                <h3 className="text-4xl md:text-5xl font-bold text-white mb-4 relative z-10">
+                  {FIAT_RATES[selectedFiat].symbol} {totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h3>
+                <div className="flex items-center gap-2 relative z-10">
+                  <span className="bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded text-sm font-bold flex items-center gap-1">
+                    <TrendingUp size={14} /> +4.2%
+                  </span>
+                  <span className="text-slate-400 text-sm">nas últimas 24h</span>
+                </div>
+              </div>
+
+              {/* Mini Stats */}
+              <div className="space-y-6">
+                <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex justify-between items-center">
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase">Lucro 7D</p>
+                    <p className="text-lg font-bold text-emerald-400">+{FIAT_RATES[selectedFiat].symbol} 1,240.00</p>
+                  </div>
+                  <TrendingUp className="text-emerald-500/50" />
+                </div>
+                <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex justify-between items-center">
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase">Ativos Totais</p>
+                    <p className="text-lg font-bold text-white">{filteredAssets.length}</p>
+                  </div>
+                  <CreditCard className="text-indigo-500/50" />
+                </div>
+              </div>
+            </div>
+
+            {/* --- BALANCE VIEW --- */}
+            {activeTab === 'balance' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
+                  <div className="p-6 border-b border-slate-800">
+                    <h3 className="text-lg font-bold text-white">Seus Ativos</h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-950/50 text-xs text-slate-400 uppercase tracking-wider font-semibold">
+                        <tr>
+                          <th className="py-4 pl-4 text-left">Ativo / Rede</th>
+                          <th className="py-4 text-right">Quantidade</th>
+                          <th className="py-4 text-right">Preço ({selectedFiat})</th>
+                          <th className="py-4 pr-4 text-right">Valor / Variação</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredAssets.map(asset => (
+                          <AssetRow 
+                            key={asset.id} 
+                            asset={asset} 
+                            fiatRate={FIAT_RATES[selectedFiat].rate}
+                            fiatSymbol={FIAT_RATES[selectedFiat].symbol}
+                          />
+                        ))}
+                        {filteredAssets.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="py-12 text-center text-slate-500">
+                              Nenhum ativo encontrado nesta rede.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* --- HISTORY VIEW --- */}
+            {activeTab === 'history' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6">
+                  <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+                    <h3 className="text-lg font-bold text-white">Performance do Portfólio</h3>
+                    
+                    {/* Time Range Selector */}
+                    <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
+                      {TIME_RANGES.map(range => (
+                        <button
+                          key={range}
+                          onClick={() => setChartRange(range)}
+                          className={`px-3 py-1 text-sm font-medium rounded-md transition-all ${chartRange === range ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+                        >
+                          {range}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="h-[400px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={chartData}>
+                        <defs>
+                          <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                        <XAxis 
+                          dataKey="name" 
+                          stroke="#475569" 
+                          tick={{fill: '#475569'}} 
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis 
+                          stroke="#475569" 
+                          tick={{fill: '#475569'}} 
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(value) => `${FIAT_RATES[selectedFiat].symbol}${value/1000}k`}
+                        />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }}
+                          itemStyle={{ color: '#fff' }}
+                          formatter={(value: number) => [`${FIAT_RATES[selectedFiat].symbol} ${value.toLocaleString()}`, 'Valor']}
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="value" 
+                          stroke="#6366f1" 
+                          strokeWidth={3}
+                          fillOpacity={1} 
+                          fill="url(#colorValue)" 
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </main>
+      </div>
+
+      {/* Wallet Modal */}
+      <Modal isOpen={isWalletModalOpen} onClose={() => setIsWalletModalOpen(false)} title="Conectar Carteira">
+        <p className="text-slate-400 mb-6">Selecione uma carteira para conectar ao Wallet Portfolio Tracker.</p>
+        
+        <WalletOption 
+          name="MetaMask" 
+          icon={<Globe className="text-orange-500" />} 
+          color="bg-orange-500"
+          onClick={() => handleConnect('MetaMask')} 
+        />
+        <WalletOption 
+          name="Phantom" 
+          icon={<Ghost className="text-purple-500" />} 
+          color="bg-purple-500"
+          onClick={() => handleConnect('Phantom')} 
+        />
+        <WalletOption 
+          name="Yoroi" 
+          icon={<ShieldCheck className="text-red-500" />} 
+          color="bg-red-500"
+          onClick={() => handleConnect('Yoroi')} 
+        />
+        
+        <p className="text-xs text-center text-slate-500 mt-4">
+          Ao conectar, você aceita nossos Termos de Serviço e Política de Privacidade.
+        </p>
+      </Modal>
+
+    </div>
+  );
+}
