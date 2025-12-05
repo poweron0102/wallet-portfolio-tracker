@@ -4,7 +4,7 @@ Um rastreador de portfólio de carteiras. (BSC, ETH, Cardano e Solana)
 
 ## Visão Geral
 
-Esta aplicação permite aos usuários visualizar e rastrear o valor de seus ativos na blockchain Cardano.
+Esta aplicação permite aos usuários visualizar e rastrear o valor de seus ativos em blockchains BSC, ETH, Cardano e Solana.
 
 ## Preview da Interface
 
