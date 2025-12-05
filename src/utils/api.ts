@@ -6,7 +6,11 @@ import type { Asset } from '../types';
 // - https://docs.moralis.io/web3-data-api/evm/reference/get-token-price
 const MORALIS_API_URL = 'https://deep-index.moralis.io/api/v2.2';
 const MORALIS_API_KEY = import.meta.env.VITE_MORALIS_API_KEY;
+const COINGECKO_API_URL = '/api/coingecko'; // Alterado para usar o proxy do Vite
 const BSC_CHAIN_ID = '0x38'; // 56 em decimal
+
+
+const BNB_PLACEHOLDER_ID = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
 export const getBscWalletBalance = async (walletAddress: string): Promise<Asset[]> => {
     try {
@@ -34,7 +38,7 @@ export const getBscWalletBalance = async (walletAddress: string): Promise<Asset[
         // Adiciona o BNB à lista de assets
         if (nativeBalanceData.balance) {
             assets.push({
-                id: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', // Placeholder para BNB
+                id: BNB_PLACEHOLDER_ID,
                 name: 'BNB',
                 ticker: 'BNB',
                 network: 'BSC',
@@ -76,43 +80,70 @@ export const getAssetsPricesAndMetadata = async (assets: Asset[]): Promise<Asset
     if (assets.length === 0) return [];
 
     try {
-        const tokenAddresses = assets.map(asset => ({ address: asset.id }));
+        const bnbAsset = assets.find(asset => asset.id === BNB_PLACEHOLDER_ID);
+        const erc20Assets = assets.filter(asset => asset.id !== BNB_PLACEHOLDER_ID);
 
-        // A API de preço da Moralis pode buscar múltiplos endereços de uma vez
-        const response = await fetch(
-            `${MORALIS_API_URL}/erc20/prices?chain=${BSC_CHAIN_ID}`,
-            {
-                method: 'POST',
-                headers: {
-                    'accept': 'application/json',
-                    'X-API-Key': MORALIS_API_KEY,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ tokens: tokenAddresses })
+        const priceMap = new Map<string, { priceUsd: number; change24h: number; change7d: number }>();
+
+        if (erc20Assets.length > 0) {
+            for (const asset of erc20Assets) {
+                try {
+                    const params = new URLSearchParams({ contract_addresses: asset.id, vs_currencies: 'usd', include_24hr_change: 'true' });
+                    const url = `${COINGECKO_API_URL}/simple/token_price/binance-smart-chain?${params.toString()}`;
+                    const response = await fetch(url);
+                    const data = await response.json();
+
+                    const assetAddress = asset.id.toLowerCase();
+                    const priceData = data[assetAddress];
+
+                    if (priceData) {
+                        priceMap.set(assetAddress, {
+                            priceUsd: priceData.usd || 0,
+                            change24h: priceData.usd_24h_change || 0,
+                            change7d: 0, // A API /simple/token_price não fornece a variação de 7 dias.
+                        });
+                    }
+                } catch (error) {
+                    console.error(`Error fetching price for asset ${asset.ticker} (${asset.id}):`, error);
+                    // Continua para o próximo ativo em caso de erro
+                }
             }
-        );
-
-        const data = await response.json();
-
-        // Mapeia os preços retornados para os nossos assets
-        // Adiciona uma verificação para garantir que 'data' é um array antes de mapear
-        if (!Array.isArray(data)) {
-            console.error('Error fetching asset prices, Moralis API did not return an array:', data);
-            return assets; // Retorna os ativos sem preços para evitar que a aplicação quebre
         }
 
-        const priceMap = new Map(data.map((item: any) => [item.tokenAddress.toLowerCase(), item]));
+        // Busca de preço para o BNB
+        if (bnbAsset) {
+            const params = new URLSearchParams({
+                ids: 'binancecoin',
+                vs_currencies: 'usd',
+                include_24hr_change: 'true',
+                include_7d_change: 'true'
+            });
 
+            const bnbPriceUrl = `${COINGECKO_API_URL}/simple/price?${params.toString()}`;
+            const response = await fetch(bnbPriceUrl);
+            const data = await response.json();
+            const bnbData = data.binancecoin;
+
+            if (bnbData) {
+                priceMap.set(BNB_PLACEHOLDER_ID, {
+                    priceUsd: bnbData.usd || 0,
+                    change24h: bnbData.usd_24h_change || 0,
+                    change7d: bnbData.usd_7d_change || 0,
+                });
+            }
+        }
+
+        // Mapeia os preços de volta para os ativos
         return assets.map((asset) => {
-            const priceData: any = priceMap.get(asset.id.toLowerCase());
+            const priceData = priceMap.get(asset.id.toLowerCase());
             return {
                 ...asset,
-                priceUsd: priceData?.usdPrice || 0,
-                // A API de preço da Moralis não retorna a variação de 24h/7d.
-                change24h: 0,
-                change7d: 0,
+                priceUsd: priceData?.priceUsd || asset.priceUsd,
+                change24h: priceData?.change24h || asset.change24h,
+                change7d: priceData?.change7d || asset.change7d,
             };
         });
+
     } catch (error) {
         console.error('Error fetching asset prices:', error);
         return assets;
