@@ -1,5 +1,5 @@
 import {Asset, ConnectedWallet, FiatCurrency, FiatInfo} from "../types";
-import { getBscWalletBalance, getAssetPrices } from '../utils/api';
+import {getBscWalletBalance, getAssetsPricesAndMetadata} from '../utils/api';
 
 export const FIAT_RATES: Record<FiatCurrency, FiatInfo> = {
   USD: { symbol: '$', rate: 1 },
@@ -26,6 +26,6 @@ export const getAssets = async (wallets: ConnectedWallet[]): Promise<Asset[]> =>
         }
     }
     const allAssets = [...bscAssets];
-    const assetsWithPrices = await getAssetPrices(allAssets);
+    const assetsWithPrices = await getAssetsPricesAndMetadata(allAssets);
     return assetsWithPrices;
 };
