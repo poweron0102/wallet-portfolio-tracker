@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Wallet,
   Menu,
@@ -20,14 +20,15 @@ import {
   Tooltip,
   ResponsiveContainer
 } from 'recharts';
-import { FIAT_RATES, MOCK_ASSETS, TIME_RANGES } from './data';
+import { FIAT_RATES, getAssets, TIME_RANGES } from './data';
 import { generateChartData } from './utils';
 import { AssetRow, Modal, SidebarItem, WalletOption } from './components';
-import type { ConnectedWallet, FiatCurrency, SubItem } from './types';
+import type { Asset, ConnectedWallet, FiatCurrency, SubItem } from './types';
 import {hexToBech32} from "./crypto";
 
 
 export default function App() {
+  const [assets, setAssets] = useState<Asset[]>([]);
   const [selectedFiat, setSelectedFiat] = useState<FiatCurrency>('BRL');
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [connectedWallets, setConnectedWallets] = useState<ConnectedWallet[]>([]);
@@ -35,6 +36,19 @@ export default function App() {
   const [selectedNetwork, setSelectedNetwork] = useState('ALL');
   const [chartRange, setChartRange] = useState('1M');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const fetchAssets = async () => {
+      if (connectedWallets.length > 0) {
+        const fetchedAssets = await getAssets(connectedWallets);
+        setAssets(fetchedAssets);
+      } else {
+        setAssets([]);
+      }
+    };
+
+    fetchAssets();
+  }, [connectedWallets]);
 
   const handleConnect = async (walletName: 'MetaMask' | 'Phantom' | 'Yoroi') => {
     try {
@@ -99,9 +113,9 @@ export default function App() {
   };
 
   const filteredAssets = useMemo(() => {
-    if (selectedNetwork === 'ALL') return MOCK_ASSETS;
-    return MOCK_ASSETS.filter(a => a.network === selectedNetwork);
-  }, [selectedNetwork]);
+    if (selectedNetwork === 'ALL') return assets;
+    return assets.filter(a => a.network === selectedNetwork);
+  }, [selectedNetwork, assets]);
 
   const totalValue = filteredAssets.reduce((acc, curr) => {
     return acc + (curr.balance * curr.priceUsd * FIAT_RATES[selectedFiat].rate);

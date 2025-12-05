@@ -2,9 +2,10 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "composite": true,
+    "module": "ESNext",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "types": ["node"] // Adicione esta linha
+    "types": ["node", "vite/client"]
   },
   "include": ["src"],
   "exclude": ["node_modules"]
