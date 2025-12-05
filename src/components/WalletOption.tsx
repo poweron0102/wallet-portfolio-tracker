@@ -1,5 +1,4 @@
 import type { WalletOptionProps } from '../types';
-import React from 'react';
 import { X } from 'lucide-react';
 
 export const WalletOption: React.FC<WalletOptionProps> = ({ name, icon, color, onClick, isConnected, address, onDisconnect }) => (

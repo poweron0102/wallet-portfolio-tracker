@@ -1,5 +1,4 @@
 import { type LucideIcon } from 'lucide-react';
-import React from 'react';
 
 export type FiatCurrency = 'USD' | 'BRL' | 'EUR';
 
