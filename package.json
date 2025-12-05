@@ -10,6 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@emurgo/cardano-serialization-lib-asmjs": "^15.0.3",
+    "@emurgo/cardano-serialization-lib-browser": "^15.0.3",
+    "@emurgo/cip14-js": "^3.0.1",
     "lucide-react": "^0.555.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

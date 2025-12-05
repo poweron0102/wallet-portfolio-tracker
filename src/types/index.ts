@@ -41,6 +41,9 @@ export interface WalletOptionProps {
   icon: React.ReactNode;
   color: string;
   onClick: () => void;
+  isConnected: boolean;
+  address?: string;
+  onDisconnect: () => void;
 }
 
 export interface StatCardProps {
@@ -54,6 +57,11 @@ export interface AssetRowProps {
   asset: Asset;
   fiatRate: number;
   fiatSymbol: string;
+}
+
+export interface ConnectedWallet {
+  name: string;
+  address: string;
 }
 
 export interface SidebarItemProps {

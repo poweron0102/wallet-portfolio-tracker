@@ -22,26 +22,80 @@ import {
 } from 'recharts';
 import { FIAT_RATES, MOCK_ASSETS, TIME_RANGES } from './data';
 import { generateChartData } from './utils';
-import { Modal, WalletOption, AssetRow, SidebarItem } from './components';
-import type { FiatCurrency, SubItem } from './types';
+import { AssetRow, Modal, SidebarItem, WalletOption } from './components';
+import type { ConnectedWallet, FiatCurrency, SubItem } from './types';
+import {hexToBech32} from "./crypto";
 
 
 export default function App() {
   const [selectedFiat, setSelectedFiat] = useState<FiatCurrency>('BRL');
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
-  const [connectedWallet, setConnectedWallet] = useState<string | null>(null);
+  const [connectedWallets, setConnectedWallets] = useState<ConnectedWallet[]>([]);
   const [activeTab, setActiveTab] = useState<'balance' | 'history'>('balance');
   const [selectedNetwork, setSelectedNetwork] = useState('ALL');
   const [chartRange, setChartRange] = useState('1M');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const handleConnect = (walletName: string) => {
-    setConnectedWallet(walletName);
-    setIsWalletModalOpen(false);
+  const handleConnect = async (walletName: 'MetaMask' | 'Phantom' | 'Yoroi') => {
+    try {
+      let address: string | null = null;
+
+      if (walletName === 'MetaMask') {
+        if (window.ethereum) {
+          const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+          address = accounts[0];
+        } else {
+          throw new Error('MetaMask não está instalado. Por favor, instale a extensão.');
+        }
+      } else if (walletName === 'Phantom') {
+        if (window.solana && window.solana.isPhantom) {
+          const response = await window.solana.connect();
+          address = response.publicKey.toString();
+        } else {
+          throw new Error('Phantom não está instalado. Por favor, instale a extensão.');
+        }
+      } else if (walletName === 'Yoroi') {
+        // A API da Yoroi pode ser mais complexa e este é um exemplo simplificado.
+        if (window.cardano && window.cardano.yoroi) {
+          const api = await window.cardano.yoroi.enable();
+          let hexAddresses = await api.getUsedAddresses();
+
+          // Se não houver endereços usados, pega um endereço não utilizado
+          if (hexAddresses.length === 0) {
+            hexAddresses = await api.getUnusedAddresses();
+          }
+
+          if (hexAddresses.length > 0) {
+            // // Decodifica o endereço de Hex (CBOR) para bech32.
+            // // É necessário converter a string hexadecimal para um buffer de bytes primeiro.
+            // const addressBytes = Buffer.from(hexAddresses[0], 'hex');
+            const cardanoAddress = hexToBech32(hexAddresses[0]);
+            address = cardanoAddress;
+          } else {
+            throw new Error('Nenhum endereço encontrado na carteira Yoroi.');
+          }
+        } else {
+          throw new Error('Yoroi não está instalado. Por favor, instale a extensão.');
+        }
+      }
+
+      if (address && !connectedWallets.some(w => w.name === walletName)) {
+        setConnectedWallets(prev => [...prev, { name: walletName, address: address as string }]);
+      }
+      setIsWalletModalOpen(false);
+    } catch (error) {
+      console.error(`Falha ao conectar com ${walletName}:`, error);
+      alert(`Não foi possível conectar com ${walletName}. Verifique o console para mais detalhes.`);
+    }
   };
 
-  const handleDisconnect = () => {
-    setConnectedWallet(null);
+  const handleDisconnect = (walletName: 'MetaMask' | 'Phantom' | 'Yoroi') => {
+    if (window.confirm(`Tem certeza que deseja desconectar a carteira ${walletName}?`)) {
+      setConnectedWallets(prev => prev.filter(w => w.name !== walletName));
+      if (selectedNetwork === walletToNetworkMap[walletName]) {
+        setSelectedNetwork('ALL');
+      }
+    }
   };
 
   const filteredAssets = useMemo(() => {
@@ -56,13 +110,28 @@ export default function App() {
   // Dados do gráfico reativos
   const chartData = useMemo(() => generateChartData(selectedNetwork, chartRange), [selectedNetwork, chartRange]);
 
-  const networks: SubItem[] = [
-    { key: 'ALL', label: 'Total (Todas)' },
-    { key: 'ETH', label: 'Ethereum' },
-    { key: 'BSC', label: 'BSC' },
-    { key: 'SOLANA', label: 'Solana' },
-    { key: 'CARDANO', label: 'Cardano' },
-  ];
+  const walletToNetworkMap: Record<string, string> = {
+    MetaMask: 'ETH', // MetaMask pode controlar ETH e BSC
+    Phantom: 'SOLANA',
+    Yoroi: 'CARDANO',
+  };
+
+  const availableNetworks = useMemo(() : SubItem[] => {
+    const networks: SubItem[] = [{ key: 'ALL', label: 'Total (Todas)' }];
+    const connectedWalletNames = connectedWallets.map(w => w.name);
+
+    if (connectedWalletNames.includes('MetaMask')) {
+      networks.push({ key: 'ETH', label: 'Ethereum' });
+      networks.push({ key: 'BSC', label: 'BSC' });
+    }
+    if (connectedWalletNames.includes('Phantom')) {
+      networks.push({ key: 'SOLANA', label: 'Solana' });
+    }
+    if (connectedWalletNames.includes('Yoroi')) {
+      networks.push({ key: 'CARDANO', label: 'Cardano' });
+    }
+    return networks;
+  }, [connectedWallets]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-indigo-500 selection:text-white">
@@ -104,22 +173,12 @@ export default function App() {
           </div>
 
           {/* Connect Button */}
-          {connectedWallet ? (
-            <button
-              onClick={handleDisconnect}
-              className="flex items-center gap-2 bg-indigo-500/10 text-indigo-400 border border-indigo-500/50 py-2 px-4 rounded-full text-sm font-semibold hover:bg-indigo-500/20 transition-all"
-            >
-              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
-              {connectedWallet}
-            </button>
-          ) : (
-            <button
-              onClick={() => setIsWalletModalOpen(true)}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white py-2 px-6 rounded-full text-sm font-bold shadow-lg shadow-indigo-600/20 transition-all transform hover:scale-105"
-            >
-              Conectar Carteira
-            </button>
-          )}
+          <button
+            onClick={() => setIsWalletModalOpen(true)}
+            className="bg-indigo-600 hover:bg-indigo-500 text-white py-2 px-6 rounded-full text-sm font-bold shadow-lg shadow-indigo-600/20 transition-all transform hover:scale-105 flex items-center gap-2"
+          >
+            <CreditCard size={16} /> Carteiras
+          </button>
         </div>
       </header>
 
@@ -137,8 +196,8 @@ export default function App() {
               label="Saldo Atual"
               isActive={activeTab === 'balance'}
               onClick={() => setActiveTab('balance')}
-              hasSubmenu={true}
-              subItems={networks}
+              hasSubmenu={availableNetworks.length > 1}
+              subItems={availableNetworks}
               currentSub={selectedNetwork}
               onSubClick={setSelectedNetwork}
             />
@@ -148,8 +207,8 @@ export default function App() {
               label="Histórico"
               isActive={activeTab === 'history'}
               onClick={() => setActiveTab('history')}
-              hasSubmenu={true}
-              subItems={networks}
+              hasSubmenu={availableNetworks.length > 1}
+              subItems={availableNetworks}
               currentSub={selectedNetwork}
               onSubClick={setSelectedNetwork}
             />
@@ -175,9 +234,17 @@ export default function App() {
               <h2 className="text-3xl font-bold text-white mb-2">
                 {activeTab === 'balance' ? 'Visão Geral do Portfólio' : 'Análise Histórica'}
               </h2>
-              <p className="text-slate-400">
-                Visualizando dados da rede: <span className="text-indigo-400 font-semibold">{selectedNetwork === 'ALL' ? 'Todas as Redes' : selectedNetwork}</span>
-              </p>
+              <div className="text-slate-400 flex items-center gap-4">
+                <span>
+                  Visualizando dados da rede: <span className="text-indigo-400 font-semibold">{selectedNetwork === 'ALL' ? 'Todas as Redes' : selectedNetwork}</span>
+                </span>
+                {selectedNetwork !== 'ALL' && connectedWallets.find(w => walletToNetworkMap[w.name] === selectedNetwork || (selectedNetwork === 'BSC' && w.name === 'MetaMask')) && (
+                  <div className="flex items-center gap-2 text-xs font-mono bg-slate-800/50 px-2 py-1 rounded">
+                    <span className="text-slate-500">Conectado com:</span>
+                    <span className="text-indigo-400">{connectedWallets.find(w => walletToNetworkMap[w.name] === selectedNetwork || (selectedNetwork === 'BSC' && w.name === 'MetaMask'))?.name}</span>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Total Balance Card (Shown in both views) */}
@@ -327,7 +394,7 @@ export default function App() {
       </div>
 
       {/* Wallet Modal */}
-      <Modal isOpen={isWalletModalOpen} onClose={() => setIsWalletModalOpen(false)} title="Conectar Carteira">
+      <Modal isOpen={isWalletModalOpen} onClose={() => setIsWalletModalOpen(false)} title="Gerenciar Carteiras">
         <p className="text-slate-400 mb-6">Selecione uma carteira para conectar ao Wallet Portfolio Tracker.</p>
 
         <WalletOption
@@ -335,18 +402,27 @@ export default function App() {
           icon={<Globe className="text-orange-500" />}
           color="bg-orange-500"
           onClick={() => handleConnect('MetaMask')}
+          onDisconnect={() => handleDisconnect('MetaMask')}
+          isConnected={!!connectedWallets.find(w => w.name === 'MetaMask')}
+          address={connectedWallets.find(w => w.name === 'MetaMask')?.address}
         />
         <WalletOption
           name="Phantom"
           icon={<Ghost className="text-purple-500" />}
           color="bg-purple-500"
           onClick={() => handleConnect('Phantom')}
+          onDisconnect={() => handleDisconnect('Phantom')}
+          isConnected={!!connectedWallets.find(w => w.name === 'Phantom')}
+          address={connectedWallets.find(w => w.name === 'Phantom')?.address}
         />
         <WalletOption
           name="Yoroi"
           icon={<ShieldCheck className="text-red-500" />}
           color="bg-red-500"
           onClick={() => handleConnect('Yoroi')}
+          onDisconnect={() => handleDisconnect('Yoroi')}
+          isConnected={!!connectedWallets.find(w => w.name === 'Yoroi')}
+          address={connectedWallets.find(w => w.name === 'Yoroi')?.address}
         />
 
         <p className="text-xs text-center text-slate-500 mt-4">
@@ -356,4 +432,13 @@ export default function App() {
 
     </div>
   );
+}
+
+// Adiciona as definições de tipo para as APIs das carteiras no objeto window
+declare global {
+  interface Window {
+    ethereum?: any;
+    solana?: any;
+    cardano?: any;
+  }
 }
